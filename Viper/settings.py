@@ -48,7 +48,7 @@ INSTALLED_APPS = [
     'Core',
     'PostModule',
     'PostLateral',
-
+    'WebDatabase',
 ]
 
 MIDDLEWARE = [
@@ -111,7 +111,7 @@ LOGGING = {
     },
     'formatters': {
         'standard': {
-            'format': '[%(levelname)s][%(asctime).19s][%(module)s][%(funcName)s][%(lineno)d][%(threadName)s] : %(message)s '
+            'format': '[%(levelname)s][%(asctime).19s][%(pathname)s][%(lineno)d][%(threadName)s] : %(message)s '
         },
     },
     'handlers': {
@@ -121,8 +121,9 @@ LOGGING = {
             'formatter': 'standard',
         },
         'file': {
-            'level': 'WARNING',
+            'level': 'INFO',
             'class': 'logging.FileHandler',
+            'formatter': 'standard',
             'filename': os.path.join(settings.BASE_DIR, 'Docker', 'log', 'viperpython.log'),
         },
 

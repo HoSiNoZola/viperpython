@@ -104,6 +104,7 @@ class _CommonModule(object):
                 return tmp_param
             except Exception as E:
                 logger.warning(E)
+                logger.warning(self._custom_param)
                 return None
 
         else:
@@ -249,6 +250,14 @@ class _CommonModule(object):
 
     # 模块输出相关函数
     # 模块输出相关函数
+    def _log(self, log_type, data_zh, data_en=None):
+        if not isinstance(data_zh, str):
+            data_zh = str(data_zh)
+        if data_en is not None and not isinstance(data_en, str):
+            data_en = str(data_en)
+        result_format = {"type": log_type, "data_zh": data_zh, "data_en": data_en}
+        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+
     def log_table(self, data_zh, data_en):
         if data_zh is None or len(data_zh) == 0:
             return
@@ -271,49 +280,42 @@ class _CommonModule(object):
     def log_raw(self, data):
         if data is None:
             return
-        result_format = {"type": "raw", "data_zh": data, "data_en": data}
-        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+        self._log("raw", data, data)
 
     def log_info(self, data_zh, data_en=None):
-        result_format = {"type": "info", "data_zh": data_zh, "data_en": data_en}
-        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+        self._log("info", data_zh, data_en)
 
     def log_success(self, data_zh, data_en=None):
-        self.log_good(self, data_zh, data_en)
+        self._log("good", data_zh, data_en)
 
     def log_good(self, data_zh, data_en=None):
-        result_format = {"type": "good", "data_zh": data_zh, "data_en": data_en}
-        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+        self._log("good", data_zh, data_en)
 
     def log_warn(self, data_zh, data_en=None):
-        self.log_warning(data_zh, data_en)
+        self._log("warning", data_zh, data_en)
 
     def log_warning(self, data_zh, data_en=None):
-        result_format = {"type": "warning", "data_zh": data_zh, "data_en": data_en}
-        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+        self._log("warning", data_zh, data_en)
 
     def log_error(self, data_zh, data_en=None):
-        result_format = {"type": "error", "data_zh": data_zh, "data_en": data_en}
-        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+        self._log("error", data_zh, data_en)
 
     def log_except(self, data_zh, data_en=None):
-        result_format = {"type": "except", "data_zh": data_zh, "data_en": data_en}
-        Xcache.add_module_result(self.host_ipaddress, self.loadpath, result_format)
+        self._log("except", data_zh, data_en)
 
     def log_store(self, result_format):
         """清空已有结果并存储当前输出"""
         result_format = result_format.strip()
         Xcache.set_module_result(self.host_ipaddress, self.loadpath, result_format)
 
-    def _clean_log(self):
+    def clean_log(self):
         flag = Xcache.del_module_result_by_ipaddress_and_loadpath(self.host_ipaddress, self.loadpath)
         return flag
 
-    def _store_result_in_history(self):
+    def store_result_in_history(self):
         """存储模块运行结果到历史记录"""
-        if self.MODULETYPE in [TAG2TYPE.internal]:
-            return None
-        # 处理参数
+        if self.MODULETYPE in [TAG2TYPE.internal]:  # 内部模块不存储
+            return True
 
         module_result = Xcache.get_module_result(ipaddress=self.host_ipaddress,
                                                  loadpath=self.__module__)
@@ -322,12 +324,12 @@ class _CommonModule(object):
             ipaddress=self.host_ipaddress,
             sessionid=self._sessionid,
             loadpath=self.__module__,
-            opts=self._get_human_opts(),
+            opts=self.get_readable_opts(),
             update_time=module_result.get("update_time"),
             result=module_result.get("result"))
         return flag
 
-    def _get_human_opts(self):
+    def get_readable_opts(self):
         opts = {}
         for key in self._custom_param:
             for option in self.OPTIONS:
@@ -356,14 +358,11 @@ class _CommonModule(object):
                                                         "tag_en": option.get("tag_en"),
                                                         "data": json.dumps(new_params)}
 
-
                         elif key == FILE_OPTION.get("name"):
                             file_dict = json.loads(self._custom_param.get(key))
                             opts[option.get("name")] = {"tag_zh": option.get("tag_zh"),
                                                         "tag_en": option.get("tag_en"),
-                                                        "data": json.dumps({
-                                                            "name": file_dict.get("name"),
-                                                        })}
+                                                        "data": file_dict.get("name")}
 
                         elif key == CREDENTIAL_OPTION.get("name"):
                             credential_dict = json.loads(self._custom_param.get(key))
@@ -401,8 +400,6 @@ class _CommonModule(object):
         return opts
 
     # 监听相关函数
-    # 监听相关函数
-
     def set_payload_by_handler(self):
         """通过handler参数设置msf模块的payload"""
         handler_config = self.param(HANDLER_OPTION.get('name'))
@@ -491,8 +488,6 @@ class _CommonModule(object):
         return cache_data.get("lhost")
 
     # 功能函数
-    # 功能函数
-
     @staticmethod
     def dqtoi(dq):
         """将字符串ip地址转换为int数字."""
@@ -644,7 +639,7 @@ class _PostCommonModule(_CommonModule):
         try:
             raw_lines = raw_input.split(",")
         except Exception as E:
-            print(E)
+            logger.exception(E)
             return []
         ipaddress_list = []
         for line in raw_lines:
@@ -658,7 +653,7 @@ class _PostCommonModule(_CommonModule):
                             if ip.compressed not in ipaddress_list:
                                 ipaddress_list.append(ip.compressed)
                 except Exception as E:
-                    print(E)
+                    logger.exception(E)
             elif line == "":
                 continue
             else:
@@ -701,6 +696,7 @@ class _PostMSFModuleCommon(_PostCommonModule):
         except Exception as E:
             logger.warning(E)
             logger.warning("解析powershell结果失败")
+            logger.warning(result_without_empty)
             return None
 
 
@@ -813,7 +809,7 @@ class PostPythonModule(_PostCommonModule):
         t1 = ThreadWithExc(target=self.run)
         t1.start()
         while True:
-            req = Xcache.get_module_task_by_uuid_nowait(self._module_uuid)
+            req = Xcache.get_module_task_by_uuid(self._module_uuid)
             if req is None:  # 检查模块是否已经删除
                 self.exit_flag = True
                 time.sleep(3)

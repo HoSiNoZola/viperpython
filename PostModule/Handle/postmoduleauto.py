@@ -15,6 +15,7 @@ from Lib.redisclient import RedisClient
 from Lib.xcache import Xcache
 from PostModule.Handle.postmoduleactuator import PostModuleActuator
 from PostModule.Handle.postmoduleconfig import PostModuleConfig
+from PostModule.Handle.postmodulescheduler import PostModuleScheduler
 
 
 class PostModuleAuto(object):
@@ -23,7 +24,8 @@ class PostModuleAuto(object):
 
     @staticmethod
     def list():
-        result_list = []
+        # 自动编排任务信息
+        auto_text_jobs = []
         postmodule_auto_dict = Xcache.get_postmodule_auto_dict()
         for module_uuid in postmodule_auto_dict:
             one_result = postmodule_auto_dict.get(module_uuid)
@@ -34,13 +36,18 @@ class PostModuleAuto(object):
                 module_intent = PostModuleConfig.get_post_module_intent(loadpath=one_result["loadpath"],
                                                                         custom_param=json.loads(
                                                                             one_result["custom_param"]))
-                one_result["opts"] = module_intent._get_human_opts()
+                one_result["opts"] = module_intent.get_readable_opts()
             except Exception as E:
-                logger.warning(E)
+                logger.exception(E)
+                logger.warning(one_result)
                 one_result["opts"] = {}
 
-            result_list.append(one_result)
-        context = data_return(200, result_list, CODE_MSG_ZH.get(200), CODE_MSG_EN.get(200))
+            auto_text_jobs.append(one_result)
+
+        # 定时任务信息
+        scheduler_text_jobs = PostModuleScheduler.list_jobs()
+        context = data_return(200, {"auto": auto_text_jobs, "scheduler": scheduler_text_jobs}, CODE_MSG_ZH.get(200),
+                              CODE_MSG_EN.get(200))
         return context
 
     @staticmethod
@@ -77,7 +84,8 @@ class PostModuleAuto(object):
         try:
             session = json.loads(session_json)
         except Exception as E:
-            logger.error(E)
+            logger.exception(E)
+            logger.warning(session_json)
             return False
 
         # 获取session配置
@@ -90,13 +98,18 @@ class PostModuleAuto(object):
         postmodule_auto_dict = Xcache.get_postmodule_auto_dict()
         for module_uuid in postmodule_auto_dict:
             time.sleep(interval)
+
             loadpath = postmodule_auto_dict[module_uuid].get("loadpath")
             custom_param = postmodule_auto_dict[module_uuid].get("custom_param")
+            module_config = Xcache.get_moduleconfig(loadpath)
+            Notice.send_info(f"执行自动化任务, 模块: {module_config.get('NAME_ZH')}",
+                             f"Execute automation task, Module: {module_config.get('NAME_EN')}")
+
             context = PostModuleActuator.create_post(loadpath=loadpath,
                                                      sessionid=sessionid,
                                                      ipaddress=ipaddress,
                                                      custom_param=custom_param)
             if context.get('code') >= 300:  # 执行失败
-                Notice.send_warning(f"自动编排执行失败,SID: {sessionid} MSG: {context.get('message')}",
-                                    f"Failed to execute automation,SID: {sessionid} MSG: {context.get('message')}")
+                Notice.send_warning(f"自动编排执行失败,SID: {sessionid} MSG: {context.get('msg_zh')}",
+                                    f"Failed to execute automation,SID: {sessionid} MSG: {context.get('msg_en')}")
         return

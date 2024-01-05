@@ -183,14 +183,22 @@ class HeartBeat(object):
         for session in sessions:
             session_host = session.get("session_host")
             if session_host is None or session_host == "":
-                continue
+                session_host = VIPER_IP  # 未知的session_host,默认为viper的ip (shell session和未初始化的session)
 
             # 确保每个session成功后都会添加edge
             if session.get("available"):
-                Edge.create_edge(source=VIPER_IP,
-                                 target=session_host,
+                payload = "/".join(session.get("via_payload").split("/")[1:])
+                if "reverse" in payload:
+                    source = session_host
+                    target = VIPER_IP
+                else:
+                    source = VIPER_IP
+                    target = session_host
+
+                Edge.create_edge(source=source,
+                                 target=target,
                                  type="online",
-                                 data={"payload": "/".join(session.get("via_payload").split("/")[1:])})
+                                 data={"payload": payload})
 
             for host in hosts:
                 if session_host == host.get('ipaddress'):
@@ -247,7 +255,7 @@ class HeartBeat(object):
         # 获取nodes数据
         nodes = [
             {
-                "id": '255.255.255.255',
+                "id": VIPER_IP,
                 "data": {
                     "type": 'viper',
                 },
@@ -305,9 +313,16 @@ class HeartBeat(object):
                     })
 
                     # 主机节点连接到session节点
+                    if "reverse" in payload:
+                        source = sesison_node_id
+                        target = ipaddress
+                    else:
+                        source = ipaddress
+                        target = sesison_node_id
+
                     edge_data = {
-                        "source": ipaddress,
-                        "target": sesison_node_id,
+                        "source": source,
+                        "target": target,
                         "data": {
                             "type": 'session',
                             "payload": short_payload(payload),
@@ -318,9 +333,16 @@ class HeartBeat(object):
 
                     if comm_channel_session is None:
                         # 主机节点连接到viper节点
+                        if "reverse" in payload:
+                            source = ipaddress
+                            target = VIPER_IP
+                        else:
+                            source = VIPER_IP
+                            target = ipaddress
+
                         edge = {
-                            "source": '255.255.255.255',
-                            "target": ipaddress,
+                            "source": source,
+                            "target": target,
                             "data": {
                                 "type": 'session',
                                 "payload": short_payload(payload),
@@ -331,10 +353,11 @@ class HeartBeat(object):
                     else:
                         # 查看是否存在online类型的edge
                         online_edge_list = Edge.list_edge(target=ipaddress, type="online")
+                        online_edge_list.extend(Edge.list_edge(source=ipaddress, type="online"))
                         for online_edge in online_edge_list:
                             edge_data = {
-                                "source": '255.255.255.255',
-                                "target": ipaddress,
+                                "source": online_edge.get("source"),
+                                "target": online_edge.get("target"),
                                 "data": {
                                     "type": 'online',
                                     "payload": short_payload(online_edge.get("data").get("payload")),
@@ -347,9 +370,16 @@ class HeartBeat(object):
                         # comm_channel_session 类型边
                         source_sesison_node_id = f"SID - {comm_channel_session}"
 
+                        if "reverse" in payload:
+                            source = sesison_node_id
+                            target = source_sesison_node_id
+                        else:
+                            source = source_sesison_node_id
+                            target = sesison_node_id
+
                         edge = {
-                            "source": source_sesison_node_id,
-                            "target": sesison_node_id,
+                            "source": source,
+                            "target": target,
                             "data": {
                                 "type": 'comm',
                                 "payload": short_payload(payload),
@@ -391,10 +421,11 @@ class HeartBeat(object):
 
                 # 查看是否存在online类型的edge
                 online_edge_list = Edge.list_edge(target=ipaddress, type="online")
+                online_edge_list.extend(Edge.list_edge(source=ipaddress, type="online"))
                 for online_edge in online_edge_list:
                     edge_data = {
-                        "source": '255.255.255.255',
-                        "target": ipaddress,
+                        "source": online_edge.get("source"),
+                        "target": online_edge.get("target"),
                         "data": {
                             "type": 'online',
                             "payload": short_payload(online_edge.get("data").get("payload")),
@@ -403,6 +434,7 @@ class HeartBeat(object):
                     if edge_data not in edges:
                         edges.append(edge_data)
                         break  # 不存在session的主机只取一个payload即可
+
         network_data = {"nodes": nodes, "edges": edges}
         return hosts, network_data
 
@@ -420,7 +452,11 @@ class HeartBeat(object):
                                                              "LPORT": datastore.get("LPORT"),
                                                              "LHOST": datastore.get("LHOST"),
                                                              "RHOST": datastore.get("RHOST")}
-
+        else:
+            if Xcache.msfrpc_heartbeat_error_send():
+                Notice.send_warning(f"渗透服务心跳超时",
+                                    "MSFRPC service heartbeat timeout")
+                logger.warning(f'渗透服务心跳超时')
         sessions = []
         # session_info_dict = RpcClient.call(Method.SessionList, timeout=RPC_FRAMEWORK_API_REQ)
         session_info_dict = Xcache.get_msf_sessions_cache()

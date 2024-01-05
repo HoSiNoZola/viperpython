@@ -8,7 +8,8 @@ import time
 from Lib.Module.configs import HANDLER_OPTION, BROKER
 from Lib.api import data_return
 from Lib.apsmodule import aps_module
-from Lib.configs import Job_MSG_ZH, CODE_MSG_ZH, RPC_FRAMEWORK_API_REQ, Job_MSG_EN, CODE_MSG_EN
+from Lib.configs import Job_MSG_ZH, CODE_MSG_ZH, RPC_FRAMEWORK_API_REQ, Job_MSG_EN, CODE_MSG_EN, \
+    MSF_MODULE_CALLBACK_WAIT_SENCOND
 from Lib.log import logger
 from Lib.method import Method
 from Lib.notice import Notice
@@ -36,17 +37,17 @@ class Job(object):
             if uncheck or req.get("job_id") is None or msf_jobs_dict.get(str(req.get("job_id"))) is not None:
                 req["moduleinfo"] = PostModuleSerializer(req.get("module"), many=False).data
                 module_intent = req.pop("module")  # 弹出module实例
-                req["opts"] = module_intent._get_human_opts()
+                req["opts"] = module_intent.get_readable_opts()
                 reqs_temp.append(req)
                 continue
             else:
                 # 清除失效的任务
-                if int(time.time()) - req.get("time") >= 30:
+                if int(time.time()) - req.get("time") >= MSF_MODULE_CALLBACK_WAIT_SENCOND:
                     logger.error(f"清除失效的任务: {req.get('module').NAME_ZH}")
                     logger.error(req)
                     Xcache.del_module_task_by_uuid(req.get("uuid"))
                 else:
-                    # 如果创建时间不足30秒,则等待callback处理数据
+                    # 如果创建时间不足5秒,则等待callback处理数据
                     req["moduleinfo"] = PostModuleSerializer(req.get("module"), many=False).data
                     req["moduleinfo"]['_custom_param'] = Job._deal_dynamic_param(req["moduleinfo"]['_custom_param'])
                     req.pop("module")
@@ -62,7 +63,11 @@ class Job(object):
         import json
         if _custom_param.get(HANDLER_OPTION.get("name")) is not None:
             new_option = {}
-            old_option = json.loads(_custom_param.get(HANDLER_OPTION.get("name")))
+            try:
+                old_option = json.loads(_custom_param.get(HANDLER_OPTION.get("name")))
+            except Exception as E:
+                logger.exception(E)
+                logger.warning(_custom_param)
             new_option["PAYLOAD"] = old_option.get("PAYLOAD")
             new_option["LPORT"] = old_option.get("LPORT")
 

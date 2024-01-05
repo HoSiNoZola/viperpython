@@ -57,7 +57,8 @@ class MSFModule(object):
                                 f"Module: <{msf_module.NAME_EN}> {msf_module.target_str} failed to create task")
             return False
         else:
-            logger.warning(f"模块实例放入列表:{msf_module.NAME_ZH} job_id: {result.get('job_id')} uuid: {result.get('uuid')}")
+            logger.info(
+                f"模块实例放入列表:{msf_module.NAME_ZH} job_id: {result.get('job_id')} uuid: {result.get('uuid')}")
 
             # 放入请求队列
             msf_module._module_uuid = result.get("uuid")
@@ -69,7 +70,7 @@ class MSFModule(object):
                 'job_id': result.get("job_id"),
             }
             Xcache.create_module_task(req)
-            Notice.send_info(f"模块: {msf_module.NAME_ZH} {msf_module.target_str} 开始执行",
+            Notice.send_info(f"模块: {msf_module.NAME_ZH} {msf_module.target_str} 后台运行中",
                              f"Module: <{msf_module.NAME_EN}> {msf_module.target_str} start running")
             return True
 
@@ -90,6 +91,7 @@ class MSFModule(object):
             msf_module_return_dict = json.loads(body)
         except Exception as E:
             logger.error(E)
+            logger.warning(body)
             return False
 
         # 获取对应模块实例
@@ -111,33 +113,45 @@ class MSFModule(object):
 
         # 调用回调函数
         try:
-            logger.warning(f"模块回调:{module_intent.NAME_ZH} "
-                           f"job_id: {msf_module_return_dict.get('job_id')} "
-                           f"uuid: {msf_module_return_dict.get('uuid')}")
-            module_intent._clean_log()  # 清理历史结果
+            module_intent.clean_log()  # 清理历史结果
+            logger.info(f"模块clean_log:{module_intent.NAME_ZH} "
+                        f"job_id: {msf_module_return_dict.get('job_id')} "
+                        f"uuid: {msf_module_return_dict.get('uuid')}")
         except Exception as E:
             logger.error(E)
             return False
 
         try:
+            logger.info(f"模块callback start:{module_intent.NAME_ZH} "
+                        f"job_id: {msf_module_return_dict.get('job_id')} "
+                        f"uuid: {msf_module_return_dict.get('uuid')}")
             module_intent.callback(status=msf_module_return_dict.get("status"),
                                    message=msf_module_return_dict.get("message"),
                                    data=msf_module_return_dict.get("data"))
+            logger.info(f"模块callback finish:{module_intent.NAME_ZH} "
+                        f"job_id: {msf_module_return_dict.get('job_id')} "
+                        f"uuid: {msf_module_return_dict.get('uuid')}")
         except Exception as E:
             Notice.send_exception(f"模块 {module_intent.NAME_ZH} 的回调函数callhack运行异常",
-                                  f"Module <{module_intent.NAME_EN}> Tcallback function run exception")
+                                  f"Module <{module_intent.NAME_EN}> callback function run exception")
             logger.error(E)
         try:
-            module_intent._store_result_in_history()  # 存储到历史记录
+            module_intent.store_result_in_history()  # 存储到历史记录
+            logger.info(f"存储输出到历史记录:{module_intent.NAME_ZH} "
+                        f"job_id: {msf_module_return_dict.get('job_id')} "
+                        f"uuid: {msf_module_return_dict.get('uuid')}")
         except Exception as E:
             logger.error(E)
 
         Xcache.del_module_task_by_uuid(task_uuid=msf_module_return_dict.get("uuid"))  # 清理缓存信息
+        logger.info(f"清理缓存任务:{module_intent.NAME_ZH} "
+                    f"job_id: {msf_module_return_dict.get('job_id')} "
+                    f"uuid: {msf_module_return_dict.get('uuid')}")
         Notice.send_info(f"模块: {module_intent.NAME_ZH} {module_intent.target_str} 执行完成",
                          f"Module: <{module_intent.NAME_EN}> {module_intent.target_str} run finish")
 
     @staticmethod
-    def store_heartbeat_data_from_sub(message=None):
+    def handle_heartbeat_data(message=None):
         """处理msf模块发送的data信息pub_json_data"""
         body = message.get('data')
         try:
@@ -150,18 +164,23 @@ class MSFModule(object):
             result_sessions = data.get("sessions")
             Xcache.set_msf_sessions_cache(result_sessions)
 
+            # 设置msfrpc存活状态
+            Xcache.set_msfrpc_alive()
+
         except Exception as E:
             logger.error(E)
+            logger.warning(body)
             return False
 
     @staticmethod
-    def store_monitor_from_sub(message=None):
+    def handle_msfrpc_data(message=None):
         """处理msf模块发送的data信息pub_json_data"""
         body = message.get('data')
         try:
             msf_module_return_dict = json.loads(body)
             req = Xcache.get_module_task_by_uuid(task_uuid=msf_module_return_dict.get("uuid"))
         except Exception as E:
+            logger.warning(body)
             logger.error(E)
             return False
 
@@ -177,7 +196,7 @@ class MSFModule(object):
                 return False
             logger.warning(
                 f"模块回调:{module_intent.NAME_ZH} job_id: {msf_module_return_dict.get('job_id')} uuid: {msf_module_return_dict.get('uuid')}")
-            module_intent._clean_log()  # 清理结果
+            module_intent.clean_log()  # 清理结果
         except Exception as E:
             logger.error(E)
             return False
@@ -193,7 +212,7 @@ class MSFModule(object):
 
         Notice.send_info(f"模块: {module_intent.NAME_ZH} 回调执行完成",
                          f"Module: <{module_intent.NAME_EN}> callback run finish")
-        module_intent._store_result_in_history()  # 存储到历史记录
+        module_intent.store_result_in_history()  # 存储到历史记录
 
     @staticmethod
     def store_log_from_sub(message=None):
@@ -204,4 +223,5 @@ class MSFModule(object):
             Notice.send(f"MSF >> {msf_module_logs_dict.get('content')}", level=msf_module_logs_dict.get("level"))
         except Exception as E:
             logger.error(E)
+            logger.warning(body)
             return False

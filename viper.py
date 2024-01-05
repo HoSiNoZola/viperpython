@@ -1,6 +1,7 @@
 #!/usr/local/bin/python3.9
 # -*- coding: utf-8 -*-
 import argparse
+import logging
 import os
 import random
 import re
@@ -8,13 +9,29 @@ import shutil
 import socket
 import string
 import subprocess
+import sys
 import time
+from logging.handlers import RotatingFileHandler
 
 LOCALHOST = "127.0.0.1"
 msgrpc_port = 60005
 mitmproxy_port = 28888
 LOGDIR = "/root/viper/Docker/log"
 devNull = open(os.devnull, 'w')
+
+log_file = os.path.join(LOGDIR, 'viper.log')
+logger = logging.getLogger('viper')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('[%(levelname)s][%(asctime)s][%(lineno)d] : %(message)s')
+
+file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024, backupCount=5)
+file_handler.setFormatter(formatter)
+
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.setFormatter(formatter)
+
+logger.addHandler(file_handler)
+logger.addHandler(stdout_handler)
 
 
 def random_str(num):
@@ -27,12 +44,12 @@ def get_nginx_port(false_exit=True):
         data = f.read()
         result = re.search(r'{}'.format("listen (\d+);"), data)
         if result is None:
-            print("viper.conf is not right,can not find like 'listen XXXXX;'")
+            logger.error("viper.conf is not right,can not find like 'listen XXXXX;'")
             if false_exit:
                 exit(1)
         else:
             if len(result.groups()) < 1:
-                print("viper.conf is not right,can not find like 'listen XXXXX;'")
+                logger.error("viper.conf is not right,can not find like 'listen XXXXX;'")
                 if false_exit:
                     exit(1)
             else:
@@ -40,54 +57,56 @@ def get_nginx_port(false_exit=True):
                     nginx_port = int(result.group(1))
                     return nginx_port
                 except Exception as E:
-                    print("viper.conf is not right,can not find like 'listen XXXXX;'")
+                    logger.error("viper.conf is not right,can not find like 'listen XXXXX;'")
                     if false_exit:
                         exit(1)
 
 
 def restart_nginx():
     try:
-        print("[*] 关闭nginx服务")
+        logger.warning("[*] 关闭nginx服务")
         result = subprocess.run(["nginx", "-s", "reload"], stdout=devNull)
         result = subprocess.run(["nginx", "-s", "reload"], stdout=devNull)
     except Exception as E:
         pass
 
-    while True:
+    for i in range(3):
         try:
             nginx_port = get_nginx_port()
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(0.1)
             client.connect((LOCALHOST, nginx_port))
-            print("[+] nginx运行中")
+            logger.info("[+] nginx运行中")
             client.close()
             exit(0)
         except Exception as err:
-            print("[*] 启动nginx服务")
+            logger.info("[*] 启动nginx服务")
             result = subprocess.run(
                 ["service", "nginx", "start"],
-                stdout=devNull,
-                stderr=devNull
+                # stdout=devNull,
+                # stderr=devNull
             )
+            time.sleep(3)
 
 
+#
 def check_services():
     """服务检查函数"""
     nginx_port = get_nginx_port()
     all_start = True
-    print("-------------- 检查服务状态 ----------------")
-    print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+    logger.info("-------------- 检查服务状态 ----------------")
+    logger.info(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
 
     # nginx
     nginx_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     nginx_client.settimeout(0.1)
     try:
         nginx_client.connect((LOCALHOST, nginx_port))
-        print("[+] nginx运行中")
+        logger.info("[+] nginx运行中")
         nginx_client.close()
     except Exception as _:
         all_start = False
-        print("[x] nginx未启动")
+        logger.warning("[x] nginx未启动")
     finally:
         nginx_client.close()
 
@@ -96,11 +115,11 @@ def check_services():
     redis_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         redis_client.connect(redis_addr)
-        print("[+] redis运行中")
+        logger.info("[+] redis运行中")
         redis_client.close()
     except Exception as _:
         all_start = False
-        print("[x] redis未启动")
+        logger.warning("[x] redis未启动")
     finally:
         redis_client.close()
 
@@ -109,11 +128,11 @@ def check_services():
     msf_client.settimeout(0.1)
     try:
         msf_client.connect((LOCALHOST, msgrpc_port))
-        print("[+] msfrpcd运行中")
+        logger.info("[+] msfrpcd运行中")
         msf_client.close()
     except Exception as _:
         all_start = False
-        print("[x] msfrpcd未启动")
+        logger.warning("[x] msfrpcd未启动")
     finally:
         msf_client.close()
 
@@ -122,11 +141,11 @@ def check_services():
     viper_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         viper_client.connect(uwsgi_addr)
-        print("[+] uwsgi运行中")
+        logger.info("[+] uwsgi运行中")
         viper_client.close()
     except Exception as _:
         all_start = False
-        print("[x] uwsgi未启动")
+        logger.warning("[x] uwsgi未启动")
     finally:
         viper_client.close()
 
@@ -135,11 +154,11 @@ def check_services():
     daphne_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         daphne_client.connect(daphne_addr)
-        print("[+] daphne服务运行中")
+        logger.info("[+] daphne服务运行中")
         daphne_client.close()
     except Exception as _:
         all_start = False
-        print("[x] daphne主服务未启动")
+        logger.warning("[x] daphne主服务未启动")
     finally:
         daphne_client.close()
     return all_start
@@ -155,11 +174,11 @@ def check_nginx():
     nginx_client.settimeout(0.1)
     try:
         nginx_client.connect((LOCALHOST, nginx_port))
-        print("[+] nginx运行中")
+        logger.info("[+] nginx运行中")
         start_flag = True
     except Exception as _:
         start_flag = False
-        print("[x] nginx未启动")
+        logger.warning("[x] nginx未启动")
     finally:
         nginx_client.close()
     return start_flag
@@ -171,10 +190,10 @@ def start_services(newpassword=None):
         redis_addr = '/var/run/redis/redis-server.sock'
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect(redis_addr)
-        print("[+] redis运行中")
+        logger.info("[+] redis运行中")
         client.close()
     except Exception as err:
-        print("[*] 启动redis服务")
+        logger.info("[*] 启动redis服务")
         result = subprocess.run(
             ["service", "redis-server", "start"],
             stdout=devNull,
@@ -186,25 +205,31 @@ def start_services(newpassword=None):
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.settimeout(0.1)
         client.connect((LOCALHOST, msgrpc_port))
-        print("[+] msfrpcd运行中")
+        logger.info("[+] msfrpcd运行中")
         client.close()
     except Exception as err:
-        print("[*] 启动msfrpcd服务")
+        logger.info("[*] 启动msfrpcd服务")
+        # clean old thin.pid
+        try:
+            os.remove("/root/metasploit-framework/tmp/pids/thin.pid")
+        except:
+            pass
         os.chdir("/root/metasploit-framework/")
-        cmd = f"thin --rackup /root/metasploit-framework/msf-json-rpc.ru --address {LOCALHOST} --port {msgrpc_port} --environment production --daemonize start"
+        # thin --rackup /root/metasploit-framework/msf-json-rpc.ru --address 127.0.0.1 --port 55553 --environment production --daemonize --threaded start
+        cmd = f"thin --rackup /root/metasploit-framework/msf-json-rpc.ru --address {LOCALHOST} --port {msgrpc_port} --environment production --daemonize --threaded start"
         result = subprocess.Popen(cmd, shell=True)
-        cpulimitcmd = "cpulimit -e ruby -l 60 -b"
-        result = subprocess.Popen(cpulimitcmd, shell=True)
+        # cpulimitcmd = "cpulimit -e ruby -l 60 -b"
+        # result = subprocess.Popen(cpulimitcmd, shell=True)
 
     # daphne
     try:
         serverAddr = '/root/viper/daphne.sock'
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.connect(serverAddr)
-        print("[+] daphne服务运行中")
+        logger.info("[+] daphne服务运行中")
         client.close()
     except Exception as err:
-        print("[*] 启动daphne主服务")
+        logger.info("[*] 启动daphne主服务")
         os.chdir("/root/viper/")
         subprocess.Popen(
             "rm /root/viper/daphne.sock.lock", shell=True,
@@ -228,10 +253,10 @@ def start_services(newpassword=None):
         serverAddr = '/root/viper/uwsgi.sock'
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.connect(serverAddr)
-        print("[+] VIPER主服务运行中")
+        logger.info("[+] VIPER主服务运行中")
         client.close()
     except Exception as err:
-        print("[*] 启动VIPER主服务")
+        logger.info("[*] 启动VIPER主服务")
         result = subprocess.run(
             ["uwsgi", "--ini", "/root/viper/Docker/uwsgi.ini", ],
             stdout=devNull,
@@ -243,10 +268,10 @@ def start_services(newpassword=None):
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.settimeout(0.1)
         client.connect((LOCALHOST, mitmproxy_port))
-        print("[+] proxy运行中")
+        logger.info("[+] proxy运行中")
         client.close()
     except Exception as err:
-        print("[*] 启动proxy服务")
+        logger.info("[*] 启动proxy服务")
         if newpassword is not None:
             res = subprocess.Popen(
                 f"nohup /usr/local/bin/python3.9 /opt/mitmproxy/release/specs/mitmdump -s /root/viper/STATICFILES/Tools/proxyscan.py --ssl-insecure -p {mitmproxy_port} --proxyauth root:{newpassword} --set block_global=false&",
@@ -254,8 +279,8 @@ def start_services(newpassword=None):
                 stdout=devNull,
                 stderr=devNull
             )
-            print(f"[+] Mitmproxy: http://vpsip:28888")
-            print(f"[+] root:{newpassword}")
+            logger.info(f"[+] Mitmproxy: http://vpsip:28888")
+            logger.info(f"[+] root:{newpassword}")
         else:
             newpassword = random_str(10)
             res = subprocess.Popen(
@@ -264,18 +289,18 @@ def start_services(newpassword=None):
                 stdout=devNull,
                 stderr=devNull
             )
-            print(f"[+] mitmproxy: http://vpsip:28888")
-            print(f"[+] root:{newpassword}")
+            logger.info(f"[+] mitmproxy: http://vpsip:28888")
+            logger.info(f"[+] root:{newpassword}")
     # nginx
     try:
         nginx_port = get_nginx_port()
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.settimeout(1)
         client.connect((LOCALHOST, nginx_port))
-        print("[+] nginx运行中")
+        logger.info("[+] nginx运行中")
         client.close()
     except Exception as err:
-        print("[*] 启动nginx服务")
+        logger.info("[*] 启动nginx服务")
         result = subprocess.run(
             ["service", "nginx", "start"],
             stdout=devNull,
@@ -285,20 +310,20 @@ def start_services(newpassword=None):
     for i in range(6):
         time.sleep(5)
         if check_services():
-            print("[+] 启动完成")
+            logger.info("[+] 启动完成")
             break
 
 
 def stop_services():
     # 停止服务
     try:
-        print("[*] 关闭nginx服务")
+        logger.info("[*] 关闭nginx服务")
         result = subprocess.run(["service", "nginx", "stop"], stdout=devNull)
     except Exception as E:
         pass
 
     try:
-        print("[*] 关闭msfrpcd服务")
+        logger.info("[*] 关闭msfrpcd服务")
         result = subprocess.run(
             ["thin", "stop"],
             stdout=devNull,
@@ -308,7 +333,7 @@ def stop_services():
         pass
 
     try:
-        print("[*] 关闭VIPER主服务")
+        logger.info("[*] 关闭VIPER主服务")
         subprocess.run(
             ["uwsgi", "--stop", "/root/viper/uwsgi.pid"],
             stdout=devNull,
@@ -328,7 +353,7 @@ def stop_services():
         pass
 
     try:
-        print("[*] 关闭daphne服务")
+        logger.info("[*] 关闭daphne服务")
         subprocess.Popen(
             "kill -9 $(ps aux | grep daphne | tr -s ' '| cut -d ' ' -f 2)", shell=True,
             stdout=devNull,
@@ -348,7 +373,7 @@ def stop_services():
         pass
 
     try:
-        print("[*] 关闭proxy服务")
+        logger.info("[*] 关闭proxy服务")
         subprocess.Popen(
             "kill -9 $(ps aux | grep mitmdump | tr -s ' '| cut -d ' ' -f 2)", shell=True,
             stdout=devNull,
@@ -367,7 +392,7 @@ def gen_random_token():
     try:
         token = random_str(10)
     except Exception as E:
-        print("生成token失败")
+        logger.error("生成token失败")
         token = "foobared"
 
     try:
@@ -378,8 +403,8 @@ def gen_random_token():
         with open("/root/.msf4/redis.yml", "w+", encoding="utf-8") as f:
             f.write(redis_yml)
     except Exception as E:
-        print("写入token.yml失败")
-        print(E)
+        logger.error("写入token.yml失败")
+        logger.exception(E)
 
     # 写入redis配置文件
     try:
@@ -387,11 +412,11 @@ def gen_random_token():
         with open("/root/viper/Docker/redis.conf", "w+", encoding="utf-8") as f:
             f.write(requirepass)
     except Exception as E:
-        print("写入redis.conf失败")
-        print(E)
+        logger.error("写入redis.conf失败")
+        logger.exception(E)
     # 重启redis
     try:
-        print("[*] 重启redis服务")
+        logger.info("[*] 重启redis服务")
         result = subprocess.run(["service", "redis-server", "stop"], stdout=devNull)
         result = subprocess.run(["service", "redis-server", "stop"], stdout=devNull)
         result = subprocess.run(["service", "redis-server", "stop"], stdout=devNull)
@@ -399,7 +424,7 @@ def gen_random_token():
         result = subprocess.run(["service", "redis-server", "start"], stdout=devNull)
         result = subprocess.run(["service", "redis-server", "start"], stdout=devNull)
         result = subprocess.run(["service", "redis-server", "start"], stdout=devNull)
-        print("[*] 重启redis完成")
+        logger.info("[*] 重启redis完成")
     except Exception as E:
         pass
 
@@ -433,28 +458,31 @@ def upgrade_version_adapt():
 
 
 def init_copy_file():
-    if not os.path.exists("/root/viper/Docker/db/db.sqlite3"):
-        src_file = "/root/viper/Docker/db_empty.sqlite3"
-        target_path = "/root/viper/Docker/db/db.sqlite3"
-        shutil.copy(src_file, target_path)
-    for root, dirs, files in os.walk("/root/viper/Docker/loot_default"):
-        for file in files:
-            src_file = os.path.join("/root/viper/Docker/loot_default", file)
-            target_path = os.path.join("/root/.msf4/loot", file)
-            if not os.path.exists(target_path):
-                shutil.copy(src_file, target_path)
-    for root, dirs, files in os.walk("/root/viper/Docker/nginxconfig_default"):
-        for file in files:
-            src_file = os.path.join("/root/viper/Docker/nginxconfig_default", file)
-            target_path = os.path.join("/root/viper/Docker/nginxconfig", file)
-            if not os.path.exists(target_path):
-                shutil.copy(src_file, target_path)
-
+    try:
+        if not os.path.exists("/root/viper/Docker/db/db.sqlite3"):
+            src_file = "/root/viper/Docker/db_empty.sqlite3"
+            target_path = "/root/viper/Docker/db/db.sqlite3"
+            shutil.copy(src_file, target_path)
+        for root, dirs, files in os.walk("/root/viper/Docker/loot_default"):
+            for file in files:
+                src_file = os.path.join("/root/viper/Docker/loot_default", file)
+                target_path = os.path.join("/root/.msf4/loot", file)
+                if not os.path.exists(target_path):
+                    shutil.copy(src_file, target_path)
+        for root, dirs, files in os.walk("/root/viper/Docker/nginxconfig_default"):
+            for file in files:
+                src_file = os.path.join("/root/viper/Docker/nginxconfig_default", file)
+                target_path = os.path.join("/root/viper/Docker/nginxconfig", file)
+                if not os.path.exists(target_path):
+                    shutil.copy(src_file, target_path)
+    except Exception as E:
+        logger.exception(E)
     # 强制替换
     src_file = "/root/viper/Docker/nginxconfig_default/nobody.sh"
     target_file = "/root/viper/Docker/nginxconfig/nobody.sh"
     try:
         shutil.copy(src_file, target_file)
+        os.chmod("/root/viper/Docker/nginxconfig/nobody.sh", 0o775)
     except shutil.SameFileError:
         pass
 
@@ -483,7 +511,7 @@ if __name__ == '__main__':
         exit(0)
 
     if action is not None and action.lower() == "healthcheck":
-        if check_nginx():
+        if check_services():
             exit(0)
         else:
             exit(1)
@@ -513,8 +541,8 @@ if __name__ == '__main__':
         try:
             Xcache.clean_all_token()
         except Exception as E:
-            print("[-] Redis 启动失败,缓存的Token未清理")
-        print(f"[+] 修改密码完成,新密码为: {newpassword}")
+            logger.error("[-] Redis 启动失败,缓存的Token未清理")
+        logger.info(f"[+] 修改密码完成,新密码为: {newpassword}")
 
     if action is not None:
         if action.lower() == "init":  # 初始化处理

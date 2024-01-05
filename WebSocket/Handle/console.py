@@ -151,7 +151,7 @@ class Console(object):
             return True, result
 
     @staticmethod
-    def print_monitor_from_sub(message=None):
+    def print_output_from_sub(message=None):
         """处理msf模块发送的data信息pub_json_data"""
         body = message.get('data')
         try:
@@ -182,5 +182,6 @@ class Console(object):
             )
 
         except Exception as E:
-            logger.error(E)
+            logger.exception(E)
+            logger.warning(body)
             return False

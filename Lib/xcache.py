@@ -89,7 +89,9 @@ class Xcache(object):
 
     XCACHE_TOKEN = "XCACHE_TOKEN"
 
-    XCACHE_MSFRPC_ERROR_LOG = "XCACHE_MSFRPC_ERROR_LOG"
+    XCACHE_MSFRPC_ALIVE = "XCACHE_MSFRPC_ALIVE"
+
+    XCACHE_MSFRPC_HEARTBEAT_ERROR_LOG = "XCACHE_MSFRPC_HEARTBEAT_ERROR_LOG"
 
     XCACHE_CHECKSANDBOX_CACHE = "XCACHE_CHECKSANDBOX_CACHE"
 
@@ -109,7 +111,7 @@ class Xcache(object):
     def __init__(self):
         pass
 
-    ### postmodule_auto
+    # postmodule_auto
     @staticmethod
     def get_postmodule_auto_dict():
         """获取自动化模块配置字典"""
@@ -160,9 +162,7 @@ class Xcache(object):
             return {"flag": False, "interval": 1, "max_session": 3}
         return conf
 
-    ### postmodule_auto
-
-    ### proxy_http_scan
+    # proxy_http_scan
     @staticmethod
     def get_proxy_http_scan_dict():
         """获取自动化模块配置字典"""
@@ -315,7 +315,7 @@ class Xcache(object):
 
     @staticmethod
     def set_msf_job_cache(msfjobs):
-        cache.set(Xcache.XCACHE_MSF_JOB_CACHE, msfjobs, None)
+        cache.set(Xcache.XCACHE_MSF_JOB_CACHE, msfjobs, 3)
         return True
 
     @staticmethod
@@ -325,22 +325,19 @@ class Xcache(object):
 
     @staticmethod
     def set_msf_sessions_cache(sessions):
-        cache.set(Xcache.XCACHE_MSF_SESSIONS_CACHE, sessions, None)
+        cache.set(Xcache.XCACHE_MSF_SESSIONS_CACHE, sessions, 3)
         return True
 
     @staticmethod
-    def get_module_task_by_uuid(task_uuid):
-        for i in range(2):
-            key = f"{Xcache.XCACHE_MODULES_TASK_LIST}_{task_uuid}"
-            req = cache.get(key)
-            if req is not None:
-                return req
-            else:
-                pass
-            time.sleep(1)
+    def get_msf_sessions_by_id(sessionid):
+        result = cache.get(Xcache.XCACHE_MSF_SESSIONS_CACHE)
+        try:
+            return result.get(str(sessionid))
+        except Exception as _:
+            return None
 
     @staticmethod
-    def get_module_task_by_uuid_nowait(task_uuid):
+    def get_module_task_by_uuid(task_uuid):
         key = f"{Xcache.XCACHE_MODULES_TASK_LIST}_{task_uuid}"
         req = cache.get(key)
         return req
@@ -357,14 +354,8 @@ class Xcache(object):
     @staticmethod
     def create_module_task(req):
         """任务队列"""
-        for i in range(5):
-            key = f"{Xcache.XCACHE_MODULES_TASK_LIST}_{req.get('uuid')}"
-            cache.set(key, req, None)
-            if cache.get(key) is not None:
-                break
-            else:
-                logger.error("redis 缓存失败!")
-            time.sleep(0.5)
+        key = f"{Xcache.XCACHE_MODULES_TASK_LIST}_{req.get('uuid')}"
+        cache.set(key, req, None)
         return True
 
     @staticmethod
@@ -1050,13 +1041,29 @@ class Xcache(object):
             return False
 
     @staticmethod
-    def msfrpc_error_send():
-        flag = cache.get(Xcache.XCACHE_MSFRPC_ERROR_LOG)
-        if flag:
+    def set_msfrpc_alive():
+        cache.set(Xcache.XCACHE_MSFRPC_ALIVE, True, 0.5 * 2)
+
+    @staticmethod
+    def get_msfrpc_alive():
+        return cache.get(Xcache.XCACHE_MSFRPC_ALIVE)
+
+    @staticmethod
+    def msfrpc_heartbeat_error_send():
+        count = cache.get(Xcache.XCACHE_MSFRPC_HEARTBEAT_ERROR_LOG)
+        if count:
+            count = count + 1
+            if count >= 10:
+                count = 0
+                cache.set(Xcache.XCACHE_MSFRPC_HEARTBEAT_ERROR_LOG, count, 10)  # 10秒计时周期
+                return True
+            else:
+                cache.set(Xcache.XCACHE_MSFRPC_HEARTBEAT_ERROR_LOG, True, 10)  # 10秒计时周期
+                return False
+        else:  # 0 or None
+            count = 1
+            cache.set(Xcache.XCACHE_MSFRPC_HEARTBEAT_ERROR_LOG, count, 10)
             return False
-        else:
-            cache.set(Xcache.XCACHE_MSFRPC_ERROR_LOG, True, 30)  # 10秒计时周期
-            return True
 
     @staticmethod
     def set_city_reader_cache(ip, cache_data):
